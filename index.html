@@ -30,7 +30,7 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: #00ffff;
-            font-size: 1.1rem; /* 手机上稍微调小一点 */
+            font-size: 1.1rem;
             letter-spacing: 2px;
             pointer-events: none;
             transition: opacity 0.8s ease-out;
@@ -38,7 +38,7 @@
             animation: pulseText 2s infinite alternate;
             z-index: 100;
             text-align: center;
-            width: 90%; /* 防止手机上文字换行太丑 */
+            width: 90%;
             white-space: nowrap;
         }
 
@@ -53,7 +53,7 @@
             width: 100%;
             text-align: center;
             color: #e6ffff;
-            font-size: 1.2rem; /* 手机字体适配 */
+            font-size: 1.2rem;
             letter-spacing: 1px;
             pointer-events: none;
             z-index: 20;
@@ -75,7 +75,6 @@
         }
 
         @media (min-width: 768px) {
-            /* 电脑端字体稍微大一点 */
             #message { font-size: 1.5rem; letter-spacing: 3px; }
             #loading { font-size: 1.5rem; }
         }
@@ -136,11 +135,10 @@
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             
-            // --- 修复1：手机端适配 ---
-            // 检测屏幕宽度，如果是手机（小于768px），把相机拉远到 65，否则保持 40
+            // 手机端适配
             const isMobile = window.innerWidth < 768;
             const zPosition = isMobile ? 65 : 40; 
-            const yPosition = isMobile ? 0 : 5; // 手机上稍微放低一点视角，让爱心居中
+            const yPosition = isMobile ? 0 : 5; 
             
             camera.position.set(0, yPosition, zPosition);
             camera.lookAt(0, 0, 0);
@@ -164,6 +162,8 @@
             createFloor();
 
             window.addEventListener('resize', onWindowResize);
+            
+            // 启动交互逻辑
             setupInteraction();
         }
 
@@ -173,50 +173,50 @@
             const bgMusic = document.getElementById('bgMusic');
             const voice = document.getElementById('voice');
 
+            // --- 关键修复 1：微信专用音频自动预加载 ---
+            // 微信即使不点击，只要触发了 WeixinJSBridgeReady 就可以加载音频
+            document.addEventListener("WeixinJSBridgeReady", function () {
+                bgMusic.load();
+                voice.load();
+            }, false);
+
             const startExperience = () => {
                 if (isAnimating) return;
 
-                // 尝试全屏
-                const elem = document.documentElement;
-                if (elem.requestFullscreen) { elem.requestFullscreen().catch(() => {}); }
-                else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }
+                // --- 关键修复 2：彻底移除全屏逻辑 ---
+                // 强制全屏会打断微信的音频 API，移除它是最稳妥的方案
 
+                // 设置音量
                 bgMusic.volume = 0.3;
                 voice.volume = 1.0;
 
-                // --- 修复2：音频“假动作”预加载 ---
-                // 1. 播放背景音乐
-                const bgPromise = bgMusic.play();
+                // 播放音频（加了 catch 以防万一，保证画面一定能出来）
+                bgMusic.play().catch(e => console.log("背景音乐需交互", e));
                 
-                // 2. 关键：立刻播放录音，然后瞬间暂停并归零
-                // 这一步是为了骗过浏览器的“自动播放策略”，让它认为录音已经获得权限
+                // 预热人声
                 voice.play().then(() => {
                     voice.pause();
                     voice.currentTime = 0;
-                }).catch(e => console.log("语音预加载失败", e));
+                }).catch(e => console.log("人声预热失败", e));
 
-                if (bgPromise !== undefined) {
-                    bgPromise.then(() => {
-                        loadingText.style.opacity = '0';
-                        setTimeout(() => loadingText.remove(), 1000);
-                        canvasContainer.style.opacity = '1';
+                // 无论音频是否成功，都直接开始动画，防止黑屏
+                loadingText.style.opacity = '0';
+                setTimeout(() => loadingText.remove(), 1000);
+                canvasContainer.style.opacity = '1';
 
-                        isAnimating = true;
-                        clock.start();
-                        animate();
+                isAnimating = true;
+                clock.start();
+                animate();
 
-                        // 3. 真正播放录音（这次浏览器就不会拦截了）
-                        setTimeout(() => {
-                            voice.play().catch(e => console.log("语音正式播放失败", e));
-                            playTextSequence();
-                        }, 1500);
+                // 延迟播放人声和字幕
+                setTimeout(() => {
+                    voice.play().catch(e => console.log("人声正式播放失败", e));
+                    playTextSequence();
+                }, 1500);
 
-                        document.removeEventListener('click', startExperience);
-                        document.removeEventListener('touchstart', startExperience);
-                    }).catch(err => {
-                        console.log("背景音乐播放被拦截", err);
-                    });
-                }
+                // 移除监听
+                document.removeEventListener('click', startExperience);
+                document.removeEventListener('touchstart', startExperience);
             };
 
             document.addEventListener('click', startExperience);
@@ -263,6 +263,7 @@
             showNextMessage();
         }
 
+        // --- 几何体逻辑保持不变 ---
         function createHeart() {
             const starts = new Float32Array(HEART_COUNT * 3);
             const targets = new Float32Array(HEART_COUNT * 3);
@@ -342,4 +343,56 @@
             const material = new THREE.ShaderMaterial({
                 uniforms: uniforms,
                 vertexShader: `
-                    uniform float uTime; attribute vec3 aAxis; attribute float aOffset; attribute float aSpeed; attribute float aSize;
+                    uniform float uTime; attribute vec3 aAxis; attribute float aOffset; attribute float aSpeed; attribute float aSize; attribute vec3 aColor; varying vec3 vColor; varying float vAlpha;
+                    vec3 rotate(vec3 v, vec3 axis, float angle) { float s = sin(angle); float c = cos(angle); float oc = 1.0 - c; return v * c + cross(axis, v) * s + axis * dot(axis, v) * oc; }
+                    void main() { vColor = aColor; float angle = uTime * aSpeed + aOffset; vec3 pos = rotate(position, aAxis, angle); pos.y += sin(uTime * 1.0 + aOffset) * 0.5;
+                        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0); gl_Position = projectionMatrix * mvPos; gl_PointSize = aSize * (120.0 / -mvPos.z); vAlpha = (0.3 + 0.7 * sin(uTime * 2.0 + aOffset * 10.0)) * 0.6; }
+                `,
+                fragmentShader: fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            orbitalsSystem = new THREE.Points(geometry, material); scene.add(orbitalsSystem);
+        }
+
+        function createFloor() {
+            const positions = new Float32Array(FLOOR_COUNT * 3); const radiusArr = new Float32Array(FLOOR_COUNT);
+            const angleArr = new Float32Array(FLOOR_COUNT); const sizes = new Float32Array(FLOOR_COUNT); const colors = new Float32Array(FLOOR_COUNT * 3);
+            for (let i = 0; i < FLOOR_COUNT; i++) {
+                let r = Math.pow(Math.random(), 1.5) * 35; let angle = Math.random() * Math.PI * 2;
+                positions[i*3] = Math.cos(angle) * r; positions[i*3+1] = -12; positions[i*3+2] = Math.sin(angle) * r;
+                radiusArr[i] = r; angleArr[i] = angle; sizes[i] = Math.random() * 1.5 + 0.5;
+                let color = Math.random() < 0.5 ? colorCyan : colorBlue; colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
+            }
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setAttribute('aRadius', new THREE.BufferAttribute(radiusArr, 1));
+            geometry.setAttribute('aAngle', new THREE.BufferAttribute(angleArr, 1)); geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1)); geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: `
+                    uniform float uTime; attribute float aRadius; attribute float aAngle; attribute float aSize; attribute vec3 aColor; varying vec3 vColor; varying float vAlpha;
+                    void main() { vColor = aColor; float currentAngle = aAngle + uTime * 0.05; vec3 pos = vec3(cos(currentAngle) * aRadius, position.y, sin(currentAngle) * aRadius);
+                        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0); gl_Position = projectionMatrix * mvPos; gl_PointSize = aSize * (90.0 / -mvPos.z); float edgeFade = smoothstep(35.0, 10.0, aRadius);
+                        vAlpha = edgeFade * (0.4 + 0.6 * sin(uTime * 3.0 + aAngle)) * 0.5; }
+                `,
+                fragmentShader: fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            floorSystem = new THREE.Points(geometry, material); scene.add(floorSystem);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+            const isMobile = window.innerWidth < 768;
+            camera.position.z = isMobile ? 65 : 40;
+        }
+
+        function animate() {
+            if (!isAnimating) return;
+            requestAnimationFrame(animate);
+            let time = clock.getElapsedTime(); uniforms.uTime.value = time;
+            if (heartSystem) heartSystem.rotation.y = time * 0.1;
+            if (orbitalsSystem) orbitalsSystem.rotation.y = time * 0.05;
+            composer.render();
+        }
+    </script>
+</body>
+</html>
