@@ -12,8 +12,10 @@
             background-color: #000000;
             font-family: 'Microsoft YaHei', 'Heiti SC', sans-serif;
             touch-action: none;
+            /* 禁止默认触摸行为 */
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
+            /* 移除点击高亮 */
         }
 
         #canvas-container {
@@ -30,21 +32,27 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: #00ffff;
-            font-size: 1.1rem;
-            letter-spacing: 2px;
+            font-size: 1.2rem;
+            letter-spacing: 4px;
             pointer-events: none;
             transition: opacity 0.8s ease-out;
             text-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
             animation: pulseText 2s infinite alternate;
             z-index: 100;
             text-align: center;
-            width: 90%;
             white-space: nowrap;
         }
 
         @keyframes pulseText {
-            0% { opacity: 0.5; text-shadow: 0 0 10px #00ffff; }
-            100% { opacity: 1; text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff; }
+            0% {
+                opacity: 0.5;
+                text-shadow: 0 0 10px #00ffff;
+            }
+
+            100% {
+                opacity: 1;
+                text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            }
         }
 
         #message {
@@ -53,16 +61,16 @@
             width: 100%;
             text-align: center;
             color: #e6ffff;
-            font-size: 1.2rem;
-            letter-spacing: 1px;
+            font-size: 1.5rem;
+            letter-spacing: 2px;
             pointer-events: none;
             z-index: 20;
-            opacity: 0; 
-            transition: opacity 1s ease-in-out; 
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
             text-shadow: 0 0 10px #00ffff, 0 0 20px #0055ff;
             padding: 0 20px;
             box-sizing: border-box;
-            line-height: 1.6; 
+            line-height: 1.5;
         }
 
         .float-anim {
@@ -70,13 +78,25 @@
         }
 
         @keyframes floatMessage {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(-10px); }
+            0% {
+                transform: translateY(0);
+            }
+
+            100% {
+                transform: translateY(-10px);
+            }
         }
 
-        @media (min-width: 768px) {
-            #message { font-size: 1.5rem; letter-spacing: 3px; }
-            #loading { font-size: 1.5rem; }
+        @media (max-width: 768px) {
+            #message {
+                font-size: 1.1rem;
+                bottom: 15%;
+                letter-spacing: 1px;
+            }
+
+            #loading {
+                font-size: 1rem;
+            }
         }
     </style>
 </head>
@@ -134,14 +154,8 @@
             scene.fog = new THREE.FogExp2(0x000000, 0.015);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
-            // 手机端适配
-            const isMobile = window.innerWidth < 768;
-            const zPosition = isMobile ? 65 : 40; 
-            const yPosition = isMobile ? 0 : 5; 
-            
-            camera.position.set(0, yPosition, zPosition);
-            camera.lookAt(0, 0, 0);
+            camera.position.set(0, 5, 40);
+            camera.lookAt(0, 5, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -162,68 +176,72 @@
             createFloor();
 
             window.addEventListener('resize', onWindowResize);
-            
-            // 启动交互逻辑
             setupInteraction();
         }
 
+        // --- 核心交互逻辑 (含全屏) ---
         function setupInteraction() {
             const loadingText = document.getElementById('loading');
             const canvasContainer = document.getElementById('canvas-container');
             const bgMusic = document.getElementById('bgMusic');
             const voice = document.getElementById('voice');
 
-            // --- 关键修复 1：微信专用音频自动预加载 ---
-            // 微信即使不点击，只要触发了 WeixinJSBridgeReady 就可以加载音频
-            document.addEventListener("WeixinJSBridgeReady", function () {
-                bgMusic.load();
-                voice.load();
-            }, false);
-
             const startExperience = () => {
                 if (isAnimating) return;
 
-                // --- 关键修复 2：彻底移除全屏逻辑 ---
-                // 强制全屏会打断微信的音频 API，移除它是最稳妥的方案
+                // --- 新增：尝试进入全屏 ---
+                const elem = document.documentElement;
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen().catch(err => {
+                        console.log("浏览器禁止或不支持自动全屏，已忽略错误");
+                    });
+                } else if (elem.webkitRequestFullscreen) { /* Safari */
+                    elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) { /* IE11 */
+                    elem.msRequestFullscreen();
+                }
 
-                // 设置音量
-                bgMusic.volume = 0.3;
-                voice.volume = 1.0;
+                // --- 音频设置 ---
+                bgMusic.volume = 0.3; // 背景音量
+                voice.volume = 1.0;   // 人声音量
 
-                // 播放音频（加了 catch 以防万一，保证画面一定能出来）
-                bgMusic.play().catch(e => console.log("背景音乐需交互", e));
-                
-                // 预热人声
-                voice.play().then(() => {
-                    voice.pause();
-                    voice.currentTime = 0;
-                }).catch(e => console.log("人声预热失败", e));
+                const playPromise = bgMusic.play();
 
-                // 无论音频是否成功，都直接开始动画，防止黑屏
-                loadingText.style.opacity = '0';
-                setTimeout(() => loadingText.remove(), 1000);
-                canvasContainer.style.opacity = '1';
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        // 隐藏Loading
+                        loadingText.style.opacity = '0';
+                        setTimeout(() => loadingText.remove(), 1000);
 
-                isAnimating = true;
-                clock.start();
-                animate();
+                        // 显示画面
+                        canvasContainer.style.opacity = '1';
 
-                // 延迟播放人声和字幕
-                setTimeout(() => {
-                    voice.play().catch(e => console.log("人声正式播放失败", e));
-                    playTextSequence();
-                }, 1500);
+                        isAnimating = true;
+                        clock.start();
+                        animate();
 
-                // 移除监听
-                document.removeEventListener('click', startExperience);
-                document.removeEventListener('touchstart', startExperience);
+                        // 延迟播放人声和字幕
+                        setTimeout(() => {
+                            voice.play().catch(e => console.log("语音播放失败", e));
+                            playTextSequence();
+                        }, 1500);
+
+                        // 移除事件监听
+                        document.removeEventListener('click', startExperience);
+                        document.removeEventListener('touchstart', startExperience);
+                    }).catch(err => {
+                        console.log("播放失败，可能是交互未被信任", err);
+                    });
+                }
             };
 
             document.addEventListener('click', startExperience);
             document.addEventListener('touchstart', startExperience, { passive: true });
         }
 
+        // --- 字幕控制 ---
         function playTextSequence() {
+            // 时间配置 (ms)
             const messages = [
                 { text: "亲爱的小羊同学", time: 2000 },
                 { text: "新的一年马上就要来到", time: 2500 },
@@ -231,11 +249,11 @@
                 { text: "更加明媚，更加热烈，也更加有力量", time: 4000 },
                 { text: "可以让你不惧一切艰险，勇往直前！", time: 4000 },
                 { text: "我也希望你每天都可以更开心一点", time: 3500 },
-                { text: "有趣的事我们一起分享，难过的事我们也可以一起承担", time: 5500 }, 
+                { text: "有趣的事我们一起分享，难过的事我们也可以一起承担", time: 5500 },
                 { text: "在你需要我的时候，我会一直都在", time: 3500 },
                 { text: "陪你很久很久", time: 3000 }
             ];
-            
+
             const finalMessage = "小羊同学，每天都要开心哦";
             const msgElement = document.getElementById('message');
             let index = 0;
@@ -251,8 +269,8 @@
                         setTimeout(() => {
                             index++;
                             showNextMessage();
-                        }, 1000); 
-                    }, item.time); 
+                        }, 1000);
+                    }, item.time);
                 } else {
                     msgElement.innerText = finalMessage;
                     msgElement.style.opacity = '1';
@@ -263,7 +281,7 @@
             showNextMessage();
         }
 
-        // --- 几何体逻辑保持不变 ---
+        // --- 3D 几何体生成 ---
         function createHeart() {
             const starts = new Float32Array(HEART_COUNT * 3);
             const targets = new Float32Array(HEART_COUNT * 3);
@@ -289,7 +307,7 @@
                         targets[validCount * 3] = x * 14.0; targets[validCount * 3 + 1] = y * 14.0 + 5.0; targets[validCount * 3 + 2] = z * 14.0;
                         let angle = Math.random() * Math.PI * 2; let r = Math.random() * 20;
                         starts[validCount * 3] = Math.cos(angle) * r; starts[validCount * 3 + 1] = -20; starts[validCount * 3 + 2] = Math.sin(angle) * r;
-                        delays[validCount] = Math.random() * 2.0 + (targets[validCount*3+1]+10)/30;
+                        delays[validCount] = Math.random() * 2.0 + (targets[validCount * 3 + 1] + 10) / 30;
                         sizes[validCount] = Math.random() * 1.2 + 0.4;
                         let rand = Math.random(); let color = new THREE.Color();
                         if (edgeFactor > 0.5 && rand < 0.2) color.copy(colorWhite);
@@ -329,12 +347,12 @@
             const offsets = new Float32Array(ORBIT_COUNT); const speeds = new Float32Array(ORBIT_COUNT);
             const sizes = new Float32Array(ORBIT_COUNT); const colors = new Float32Array(ORBIT_COUNT * 3);
             for (let i = 0; i < ORBIT_COUNT; i++) {
-                let axis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                let axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
                 let perp = new THREE.Vector3(1, 0, 0); if (Math.abs(axis.x) > 0.9) perp.set(0, 1, 0);
                 let pos = new THREE.Vector3().crossVectors(axis, perp).normalize().multiplyScalar(16.0 + Math.random() * 8.0);
-                positions[i*3] = pos.x; positions[i*3+1] = pos.y; positions[i*3+2] = pos.z; axes[i*3] = axis.x; axes[i*3+1] = axis.y; axes[i*3+2] = axis.z;
+                positions[i * 3] = pos.x; positions[i * 3 + 1] = pos.y; positions[i * 3 + 2] = pos.z; axes[i * 3] = axis.x; axes[i * 3 + 1] = axis.y; axes[i * 3 + 2] = axis.z;
                 offsets[i] = Math.random() * Math.PI * 2; speeds[i] = (Math.random() * 0.5 + 0.1) * (Math.random() < 0.5 ? 1 : -1); sizes[i] = Math.random() * 2.0 + 0.5;
-                let color = Math.random() > 0.4 ? colorCyan : colorWhite; colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
+                let color = Math.random() > 0.4 ? colorCyan : colorWhite; colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
             }
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setAttribute('aAxis', new THREE.BufferAttribute(axes, 3));
@@ -358,9 +376,9 @@
             const angleArr = new Float32Array(FLOOR_COUNT); const sizes = new Float32Array(FLOOR_COUNT); const colors = new Float32Array(FLOOR_COUNT * 3);
             for (let i = 0; i < FLOOR_COUNT; i++) {
                 let r = Math.pow(Math.random(), 1.5) * 35; let angle = Math.random() * Math.PI * 2;
-                positions[i*3] = Math.cos(angle) * r; positions[i*3+1] = -12; positions[i*3+2] = Math.sin(angle) * r;
+                positions[i * 3] = Math.cos(angle) * r; positions[i * 3 + 1] = -12; positions[i * 3 + 2] = Math.sin(angle) * r;
                 radiusArr[i] = r; angleArr[i] = angle; sizes[i] = Math.random() * 1.5 + 0.5;
-                let color = Math.random() < 0.5 ? colorCyan : colorBlue; colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
+                let color = Math.random() < 0.5 ? colorCyan : colorBlue; colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
             }
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setAttribute('aRadius', new THREE.BufferAttribute(radiusArr, 1));
@@ -381,8 +399,6 @@
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
-            const isMobile = window.innerWidth < 768;
-            camera.position.z = isMobile ? 65 : 40;
         }
 
         function animate() {
@@ -395,4 +411,5 @@
         }
     </script>
 </body>
+
 </html>
