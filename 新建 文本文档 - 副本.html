@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To: 小羊同学</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000;
+            font-family: 'Microsoft YaHei', 'Heiti SC', sans-serif;
+            touch-action: none;
+            cursor: pointer;
+        }
+
+        /* 画布容器，初始隐藏 */
+        #canvas-container {
+            opacity: 0;
+            transition: opacity 2s ease-in-out;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* 初始提示文字 */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ffff;
+            font-size: 1.2rem;
+            letter-spacing: 4px;
+            pointer-events: none;
+            transition: opacity 0.8s ease-out;
+            text-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
+            animation: pulseText 2s infinite alternate;
+            z-index: 100;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        @keyframes pulseText {
+            0% {
+                opacity: 0.5;
+                text-shadow: 0 0 10px #00ffff;
+            }
+
+            100% {
+                opacity: 1;
+                text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            }
+        }
+
+        /* 祝福语容器 */
+        #message {
+            position: absolute;
+            bottom: 15%;
+            width: 100%;
+            text-align: center;
+            color: #e6ffff;
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            pointer-events: none;
+            z-index: 20;
+            opacity: 0;
+            /* 淡入淡出耗时1秒，柔和过渡 */
+            transition: opacity 1s ease-in-out;
+            text-shadow: 0 0 10px #00ffff, 0 0 20px #0055ff;
+
+            /* 确保长文字在手机上不溢出，且居中 */
+            padding: 0 20px;
+            box-sizing: border-box;
+            line-height: 1.5;
+        }
+
+        /* 漂浮动画类 */
+        .float-anim {
+            animation: floatMessage 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes floatMessage {
+            0% {
+                transform: translateY(0);
+            }
+
+            100% {
+                transform: translateY(-10px);
+            }
+        }
+
+        @media (max-width: 768px) {
+            #message {
+                font-size: 1.1rem;
+                bottom: 15%;
+                letter-spacing: 1px;
+            }
+
+            #loading {
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <audio id="bgMusic" src="music.mp3" loop preload="auto"></audio>
+
+    <div id="loading">✨ 点击屏幕任意位置开启专属浪漫 ✨</div>
+
+    <div id="canvas-container"></div>
+
+    <div id="message"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <script>
+        // --- 3D 核心变量 ---
+        let scene, camera, renderer, composer;
+        let heartSystem, orbitalsSystem, floorSystem;
+        const clock = new THREE.Clock();
+        const uniforms = { uTime: { value: 0 } };
+        let isAnimating = false;
+
+        // --- 性能配置 ---
+        const HEART_COUNT = 22000;
+        const ORBIT_COUNT = 3500;
+        const FLOOR_COUNT = 10000;
+
+        const colorCyan = new THREE.Color(0x00ffff);
+        const colorBlue = new THREE.Color(0x0055ff);
+        const colorWhite = new THREE.Color(0xffffff);
+
+        const fragmentShader = `
+            varying vec3 vColor;
+            varying float vAlpha;
+            void main() {
+                vec2 xy = gl_PointCoord.xy - vec2(0.5);
+                float ll = length(xy);
+                if (ll > 0.5) discard;
+                float intensity = pow(1.0 - (ll * 2.0), 1.5);
+                gl_FragColor = vec4(vColor, vAlpha * intensity);
+            }
+        `;
+
+        init();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            scene.fog = new THREE.FogExp2(0x000000, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // 固定相机视角
+            camera.position.set(0, 5, 40);
+            camera.lookAt(0, 5, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            const renderScene = new THREE.RenderPass(scene, camera);
+            const bloomPass = new THREE.UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                1.5, 0.4, 0.1
+            );
+            composer = new THREE.EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+
+            createHeart();
+            createOrbitals();
+            createFloor();
+
+            window.addEventListener('resize', onWindowResize);
+            setupInteraction();
+        }
+
+        // --- 交互与文字序列逻辑 ---
+        function setupInteraction() {
+            const loadingText = document.getElementById('loading');
+            const canvasContainer = document.getElementById('canvas-container');
+            const bgMusic = document.getElementById('bgMusic');
+
+            const startExperience = () => {
+                if (isAnimating) return;
+
+                bgMusic.play().then(() => {
+                    loadingText.style.opacity = '0';
+                    setTimeout(() => loadingText.remove(), 1000);
+
+                    canvasContainer.style.opacity = '1';
+
+                    isAnimating = true;
+                    clock.start();
+                    animate();
+
+                    // 1.5秒后开始播放文字
+                    setTimeout(playTextSequence, 1500);
+
+                    document.removeEventListener('click', startExperience);
+                    document.removeEventListener('touchstart', startExperience);
+                }).catch(err => {
+                    console.log("播放失败", err);
+                });
+            };
+
+            document.addEventListener('click', startExperience);
+            document.addEventListener('touchstart', startExperience, { passive: true });
+        }
+
+        function playTextSequence() {
+            // 定义文字内容和“阅读停留时间”（不包含淡入淡出的动画时间）
+            // time: 单位毫秒，根据句子长短调整，模拟人类语速
+            const messages = [
+                { text: "亲爱的小羊同学", time: 2000 },
+                { text: "新的一年马上就要来到", time: 2500 },
+                { text: "我希望你在新的一年里", time: 2500 },
+                { text: "更加明媚，更加热烈，也更加有力量", time: 4000 }, // 长句停留久一点
+                { text: "可以让你不惧一切艰险，勇往直前！", time: 4000 },
+                { text: "我也希望你每天都可以更开心一点", time: 3500 },
+                { text: "有趣的事我们一起分享，难过的事我们也可以一起承担", time: 5500 }, // 最长的一句
+                { text: "在你需要我的时候，我会一直都在", time: 3500 },
+                { text: "陪你很久很久", time: 3000 }
+            ];
+
+            const finalMessage = "小羊同学，每天都要开心哦";
+            const msgElement = document.getElementById('message');
+            let index = 0;
+
+            function showNextMessage() {
+                if (index < messages.length) {
+                    const item = messages[index];
+
+                    // 1. 设置文字
+                    msgElement.innerText = item.text;
+
+                    // 2. 淡入 (CSS transition 1s)
+                    msgElement.style.opacity = '1';
+
+                    // 3. 计算时间: 阅读时间
+                    setTimeout(() => {
+                        // 4. 淡出 (CSS transition 1s)
+                        msgElement.style.opacity = '0';
+
+                        // 5. 等待淡出完成后，切换下一句
+                        setTimeout(() => {
+                            index++;
+                            showNextMessage();
+                        }, 1000); // 这里必须和 CSS 的 transition 时间一致
+
+                    }, item.time);
+                } else {
+                    // 所有播放完毕，定格最后一句
+                    msgElement.innerText = finalMessage;
+                    msgElement.style.opacity = '1';
+                    msgElement.classList.add('float-anim');
+                }
+            }
+
+            // 开始播放
+            showNextMessage();
+        }
+
+        // --- 3D 几何体生成函数 ---
+        function createHeart() {
+            const starts = new Float32Array(HEART_COUNT * 3);
+            const targets = new Float32Array(HEART_COUNT * 3);
+            const delays = new Float32Array(HEART_COUNT);
+            const sizes = new Float32Array(HEART_COUNT);
+            const colors = new Float32Array(HEART_COUNT * 3);
+            const edges = new Float32Array(HEART_COUNT);
+
+            let validCount = 0;
+            while (validCount < HEART_COUNT) {
+                let x = (Math.random() - 0.5) * 3.0;
+                let y = (Math.random() - 0.5) * 3.0;
+                let z = (Math.random() - 0.5) * 3.0;
+                let a = x * x + 2.25 * z * z + y * y - 1.0;
+                let val = a * a * a - (x * x + 0.1125 * z * z) * y * y * y;
+
+                if (val <= 0.0) {
+                    let isSurface = val > -0.15;
+                    if (isSurface || Math.random() < 0.1) {
+                        let edgeFactor = (val + 0.15) / 0.15;
+                        if (val <= -0.15) edgeFactor = 0.0;
+                        edges[validCount] = edgeFactor;
+
+                        targets[validCount * 3] = x * 14.0;
+                        targets[validCount * 3 + 1] = y * 14.0 + 5.0;
+                        targets[validCount * 3 + 2] = z * 14.0;
+
+                        let angle = Math.random() * Math.PI * 2;
+                        let r = Math.random() * 20;
+                        starts[validCount * 3] = Math.cos(angle) * r;
+                        starts[validCount * 3 + 1] = -20;
+                        starts[validCount * 3 + 2] = Math.sin(angle) * r;
+
+                        delays[validCount] = Math.random() * 2.0 + (targets[validCount * 3 + 1] + 10) / 30;
+                        sizes[validCount] = Math.random() * 1.2 + 0.4;
+
+                        let rand = Math.random();
+                        let color = new THREE.Color();
+                        if (edgeFactor > 0.5 && rand < 0.2) color.copy(colorWhite);
+                        else if (rand < 0.6) color.copy(colorCyan);
+                        else color.copy(colorBlue).lerp(colorCyan, Math.random());
+
+                        colors[validCount * 3] = color.r;
+                        colors[validCount * 3 + 1] = color.g;
+                        colors[validCount * 3 + 2] = color.b;
+                        validCount++;
+                    }
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(starts, 3));
+            geometry.setAttribute('aTarget', new THREE.BufferAttribute(targets, 3));
+            geometry.setAttribute('aDelay', new THREE.BufferAttribute(delays, 1));
+            geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('aEdge', new THREE.BufferAttribute(edges, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: `
+                    uniform float uTime;
+                    attribute vec3 aTarget;
+                    attribute float aSize;
+                    attribute float aDelay;
+                    attribute vec3 aColor;
+                    attribute float aEdge; 
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    void main() {
+                        vColor = aColor;
+                        float t = clamp((uTime - aDelay) * 0.4, 0.0, 1.0);
+                        float easeT = 1.0 - pow(1.0 - t, 3.0); 
+                        vec3 currentPos = mix(position, aTarget, easeT);
+                        float angle = easeT * 10.0;
+                        float offsetRadius = sin(easeT * 3.14) * 2.0;
+                        currentPos.x += cos(angle) * offsetRadius;
+                        currentPos.z += sin(angle) * offsetRadius;
+                        currentPos.y += sin(uTime * 0.3 + aDelay) * 0.3;
+                        vec4 mvPos = modelViewMatrix * vec4(currentPos, 1.0);
+                        gl_Position = projectionMatrix * mvPos;
+                        gl_PointSize = aSize * (100.0 / -mvPos.z); 
+                        float twinkle = 0.5 + 0.5 * sin(uTime * 4.0 + aDelay * 50.0);
+                        vAlpha = smoothstep(0.0, 0.1, easeT) * twinkle * mix(0.2, 0.9, aEdge);
+                    }
+                `,
+                fragmentShader: fragmentShader,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            heartSystem = new THREE.Points(geometry, material);
+            heartSystem.frustumCulled = false;
+            scene.add(heartSystem);
+        }
+
+        function createOrbitals() {
+            const positions = new Float32Array(ORBIT_COUNT * 3);
+            const axes = new Float32Array(ORBIT_COUNT * 3);
+            const offsets = new Float32Array(ORBIT_COUNT);
+            const speeds = new Float32Array(ORBIT_COUNT);
+            const sizes = new Float32Array(ORBIT_COUNT);
+            const colors = new Float32Array(ORBIT_COUNT * 3);
+
+            for (let i = 0; i < ORBIT_COUNT; i++) {
+                let axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+                let perp = new THREE.Vector3(1, 0, 0);
+                if (Math.abs(axis.x) > 0.9) perp.set(0, 1, 0);
+                let pos = new THREE.Vector3().crossVectors(axis, perp).normalize().multiplyScalar(16.0 + Math.random() * 8.0);
+                positions[i * 3] = pos.x; positions[i * 3 + 1] = pos.y; positions[i * 3 + 2] = pos.z;
+                axes[i * 3] = axis.x; axes[i * 3 + 1] = axis.y; axes[i * 3 + 2] = axis.z;
+                offsets[i] = Math.random() * Math.PI * 2;
+                speeds[i] = (Math.random() * 0.5 + 0.1) * (Math.random() < 0.5 ? 1 : -1);
+                sizes[i] = Math.random() * 2.0 + 0.5;
+                let color = Math.random() > 0.4 ? colorCyan : colorWhite;
+                colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('aAxis', new THREE.BufferAttribute(axes, 3));
+            geometry.setAttribute('aOffset', new THREE.BufferAttribute(offsets, 1));
+            geometry.setAttribute('aSpeed', new THREE.BufferAttribute(speeds, 1));
+            geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: `
+                    uniform float uTime;
+                    attribute vec3 aAxis;
+                    attribute float aOffset;
+                    attribute float aSpeed;
+                    attribute float aSize;
+                    attribute vec3 aColor;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    vec3 rotate(vec3 v, vec3 axis, float angle) {
+                        float s = sin(angle); float c = cos(angle); float oc = 1.0 - c;
+                        return v * c + cross(axis, v) * s + axis * dot(axis, v) * oc;
+                    }
+                    void main() {
+                        vColor = aColor;
+                        float angle = uTime * aSpeed + aOffset;
+                        vec3 pos = rotate(position, aAxis, angle);
+                        pos.y += sin(uTime * 1.0 + aOffset) * 0.5;
+                        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+                        gl_Position = projectionMatrix * mvPos;
+                        gl_PointSize = aSize * (120.0 / -mvPos.z);
+                        vAlpha = (0.3 + 0.7 * sin(uTime * 2.0 + aOffset * 10.0)) * 0.6;
+                    }
+                `,
+                fragmentShader: fragmentShader,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            orbitalsSystem = new THREE.Points(geometry, material);
+            scene.add(orbitalsSystem);
+        }
+
+        function createFloor() {
+            const positions = new Float32Array(FLOOR_COUNT * 3);
+            const radiusArr = new Float32Array(FLOOR_COUNT);
+            const angleArr = new Float32Array(FLOOR_COUNT);
+            const sizes = new Float32Array(FLOOR_COUNT);
+            const colors = new Float32Array(FLOOR_COUNT * 3);
+
+            for (let i = 0; i < FLOOR_COUNT; i++) {
+                let r = Math.pow(Math.random(), 1.5) * 35;
+                let angle = Math.random() * Math.PI * 2;
+                positions[i * 3] = Math.cos(angle) * r; positions[i * 3 + 1] = -12; positions[i * 3 + 2] = Math.sin(angle) * r;
+                radiusArr[i] = r; angleArr[i] = angle; sizes[i] = Math.random() * 1.5 + 0.5;
+                let color = Math.random() < 0.5 ? colorCyan : colorBlue;
+                colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('aRadius', new THREE.BufferAttribute(radiusArr, 1));
+            geometry.setAttribute('aAngle', new THREE.BufferAttribute(angleArr, 1));
+            geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: uniforms,
+                vertexShader: `
+                    uniform float uTime;
+                    attribute float aRadius;
+                    attribute float aAngle;
+                    attribute float aSize;
+                    attribute vec3 aColor;
+                    varying vec3 vColor;
+                    varying float vAlpha;
+                    void main() {
+                        vColor = aColor;
+                        float currentAngle = aAngle + uTime * 0.05;
+                        vec3 pos = vec3(cos(currentAngle) * aRadius, position.y, sin(currentAngle) * aRadius);
+                        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+                        gl_Position = projectionMatrix * mvPos;
+                        gl_PointSize = aSize * (90.0 / -mvPos.z);
+                        float edgeFade = smoothstep(35.0, 10.0, aRadius);
+                        vAlpha = edgeFade * (0.4 + 0.6 * sin(uTime * 3.0 + aAngle)) * 0.5;
+                    }
+                `,
+                fragmentShader: fragmentShader,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            floorSystem = new THREE.Points(geometry, material);
+            scene.add(floorSystem);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            if (!isAnimating) return;
+            requestAnimationFrame(animate);
+            let time = clock.getElapsedTime();
+            uniforms.uTime.value = time;
+
+            if (heartSystem) heartSystem.rotation.y = time * 0.1;
+            if (orbitalsSystem) orbitalsSystem.rotation.y = time * 0.05;
+
+            composer.render();
+        }
+    </script>
+</body>
+
+</html>
