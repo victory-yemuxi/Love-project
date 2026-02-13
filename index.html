@@ -12,8 +12,10 @@
             background-color: #000000;
             font-family: 'Microsoft YaHei', 'Heiti SC', sans-serif;
             touch-action: none;
+            /* 禁止默认触摸行为 */
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
+            /* 移除点击高亮 */
         }
 
         #canvas-container {
@@ -42,8 +44,15 @@
         }
 
         @keyframes pulseText {
-            0% { opacity: 0.5; text-shadow: 0 0 10px #00ffff; }
-            100% { opacity: 1; text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff; }
+            0% {
+                opacity: 0.5;
+                text-shadow: 0 0 10px #00ffff;
+            }
+
+            100% {
+                opacity: 1;
+                text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            }
         }
 
         #message {
@@ -69,8 +78,13 @@
         }
 
         @keyframes floatMessage {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(-10px); }
+            0% {
+                transform: translateY(0);
+            }
+
+            100% {
+                transform: translateY(-10px);
+            }
         }
 
         @media (max-width: 768px) {
@@ -79,6 +93,7 @@
                 bottom: 15%;
                 letter-spacing: 1px;
             }
+
             #loading {
                 font-size: 1rem;
             }
@@ -139,14 +154,7 @@
             scene.fog = new THREE.FogExp2(0x000000, 0.015);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            
-            // --- 关键修改：手机适配逻辑 ---
-            // 判断是否为手机（宽度小于768px）
-            const isMobile = window.innerWidth < 768;
-            // 如果是手机，相机距离设为 70（拉远），电脑则保持 40
-            const zDist = isMobile ? 70 : 40; 
-            
-            camera.position.set(0, 5, zDist);
+            camera.position.set(0, 5, 40);
             camera.lookAt(0, 5, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
@@ -171,6 +179,7 @@
             setupInteraction();
         }
 
+        // --- 核心交互逻辑 (含全屏) ---
         function setupInteraction() {
             const loadingText = document.getElementById('loading');
             const canvasContainer = document.getElementById('canvas-container');
@@ -180,37 +189,48 @@
             const startExperience = () => {
                 if (isAnimating) return;
 
+                // --- 新增：尝试进入全屏 ---
                 const elem = document.documentElement;
                 if (elem.requestFullscreen) {
-                    elem.requestFullscreen().catch(err => {});
-                } else if (elem.webkitRequestFullscreen) {
+                    elem.requestFullscreen().catch(err => {
+                        console.log("浏览器禁止或不支持自动全屏，已忽略错误");
+                    });
+                } else if (elem.webkitRequestFullscreen) { /* Safari */
                     elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) { /* IE11 */
+                    elem.msRequestFullscreen();
                 }
 
-                bgMusic.volume = 0.3;
-                voice.volume = 1.0;
+                // --- 音频设置 ---
+                bgMusic.volume = 0.3; // 背景音量
+                voice.volume = 1.0;   // 人声音量
 
                 const playPromise = bgMusic.play();
 
                 if (playPromise !== undefined) {
                     playPromise.then(() => {
+                        // 隐藏Loading
                         loadingText.style.opacity = '0';
                         setTimeout(() => loadingText.remove(), 1000);
+
+                        // 显示画面
                         canvasContainer.style.opacity = '1';
 
                         isAnimating = true;
                         clock.start();
                         animate();
 
+                        // 延迟播放人声和字幕
                         setTimeout(() => {
                             voice.play().catch(e => console.log("语音播放失败", e));
                             playTextSequence();
                         }, 1500);
 
+                        // 移除事件监听
                         document.removeEventListener('click', startExperience);
                         document.removeEventListener('touchstart', startExperience);
                     }).catch(err => {
-                        console.log("播放失败", err);
+                        console.log("播放失败，可能是交互未被信任", err);
                     });
                 }
             };
@@ -219,7 +239,9 @@
             document.addEventListener('touchstart', startExperience, { passive: true });
         }
 
+        // --- 字幕控制 ---
         function playTextSequence() {
+            // 时间配置 (ms)
             const messages = [
                 { text: "亲爱的小羊同学", time: 2000 },
                 { text: "新的一年马上就要来到", time: 2500 },
@@ -255,9 +277,11 @@
                     msgElement.classList.add('float-anim');
                 }
             }
+
             showNextMessage();
         }
 
+        // --- 3D 几何体生成 ---
         function createHeart() {
             const starts = new Float32Array(HEART_COUNT * 3);
             const targets = new Float32Array(HEART_COUNT * 3);
@@ -373,14 +397,8 @@
         }
 
         function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
-            
-            // --- 关键修改：窗口变化时也更新距离 ---
-            const isMobile = window.innerWidth < 768;
-            camera.position.z = isMobile ? 70 : 40;
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
         }
 
         function animate() {
