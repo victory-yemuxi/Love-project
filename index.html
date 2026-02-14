@@ -18,7 +18,7 @@
 
         #canvas-container {
             opacity: 0;
-            transition: opacity 1.5s ease-in-out;
+            transition: opacity 1s ease-in-out;
             width: 100vw;
             height: 100vh;
             display: block;
@@ -30,21 +30,16 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: #00ffff;
-            font-size: 1.1rem;
+            font-size: 1.2rem;
             letter-spacing: 2px;
             pointer-events: none;
-            transition: opacity 0.5s ease-out;
-            text-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
-            animation: pulseText 2s infinite alternate;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
             z-index: 100;
             text-align: center;
             width: 90%;
-            white-space: nowrap;
-        }
-
-        @keyframes pulseText {
-            0% { opacity: 0.5; }
-            100% { opacity: 1; }
+            line-height: 1.5;
+            /* 允许文本换行以显示错误信息 */
+            white-space: pre-wrap; 
         }
 
         #message {
@@ -74,32 +69,64 @@
             100% { transform: translateY(-10px); }
         }
     </style>
+    
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            var loading = document.getElementById('loading');
+            if(loading) {
+                loading.style.color = '#ff3333';
+                loading.style.fontSize = '14px';
+                loading.innerHTML = "程序发生错误，请截图发给开发者：<br>" + message;
+            }
+        };
+    </script>
 </head>
 
 <body>
     <audio id="bgMusic" src="music.mp3" loop preload="auto"></audio>
     <audio id="voice" src="voice.mp3" preload="auto"></audio>
 
-    <div id="loading">✨ 点击屏幕任意位置开启专属浪漫 ✨</div>
+    <div id="loading">✨ 资源加载中... ✨</div>
 
     <div id="canvas-container"></div>
     <div id="message"></div>
 
-    <script src="https://cdn.staticfile.org/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/three.min.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://lib.baomitu.com/three.js/r128/examples/js/postprocessing/UnrealBloomPass.js"></script>
 
     <script>
+        // 等待所有资源加载完成再执行
+        window.onload = function() {
+            // 检查 Three 是否加载成功
+            if (typeof THREE === 'undefined') {
+                document.getElementById('loading').innerHTML = "⚠️ 核心组件加载失败<br>请检查网络或刷新页面";
+                return;
+            }
+            // 一切正常，更新提示文字
+            document.getElementById('loading').innerHTML = "✨ 点击屏幕任意位置开启专属浪漫 ✨";
+            document.getElementById('loading').style.pointerEvents = "none"; // 确保点击能穿透
+            
+            // 初始化
+            try {
+                init();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('loading').innerHTML = "初始化错误: " + err.message;
+            }
+        };
+
         let scene, camera, renderer, composer;
         let heartSystem, orbitalsSystem, floorSystem;
         const clock = new THREE.Clock();
         const uniforms = { uTime: { value: 0 } };
         let isAnimating = false;
 
+        // 粒子数量配置
         const HEART_COUNT = 20000;
         const ORBIT_COUNT = 3000;
         const FLOOR_COUNT = 8000;
@@ -120,21 +147,6 @@
             }
         `;
 
-        // 资源加载检测
-        window.onload = function() {
-            // 简单检测 THREE 是否加载成功
-            if (typeof THREE === 'undefined') {
-                document.getElementById('loading').innerHTML = "网络资源加载失败<br>请尝试关闭WiFi使用流量打开";
-                document.getElementById('loading').style.color = "red";
-            } else {
-                try {
-                    init();
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-        };
-
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x000000);
@@ -144,10 +156,7 @@
             
             // 手机适配逻辑
             const isMobile = window.innerWidth < 768;
-            const zPos = isMobile ? 75 : 40; 
-            const yPos = isMobile ? 0 : 5;
-            
-            camera.position.set(0, yPos, zPos);
+            camera.position.set(0, isMobile ? 0 : 5, isMobile ? 75 : 40);
             camera.lookAt(0, 0, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
@@ -155,19 +164,25 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            // 错误处理：如果后期处理加载失败，降级显示
+            // --- 防崩溃：尝试加载发光效果 ---
             try {
-                const renderScene = new THREE.RenderPass(scene, camera);
-                const bloomPass = new THREE.UnrealBloomPass(
-                    new THREE.Vector2(window.innerWidth, window.innerHeight),
-                    1.4, 0.4, 0.1
-                );
-                composer = new THREE.EffectComposer(renderer);
-                composer.addPass(renderScene);
-                composer.addPass(bloomPass);
+                // 检查必要的库是否存在
+                if (THREE.EffectComposer && THREE.UnrealBloomPass) {
+                    const renderScene = new THREE.RenderPass(scene, camera);
+                    const bloomPass = new THREE.UnrealBloomPass(
+                        new THREE.Vector2(window.innerWidth, window.innerHeight),
+                        1.4, 0.4, 0.1
+                    );
+                    composer = new THREE.EffectComposer(renderer);
+                    composer.addPass(renderScene);
+                    composer.addPass(bloomPass);
+                } else {
+                    console.warn("发光组件未加载，降级为普通渲染");
+                    composer = null;
+                }
             } catch (e) {
-                console.warn("Bloom effect failed to load", e);
-                composer = null; // 标记为无后期处理
+                console.warn("发光效果初始化失败，降级运行", e);
+                composer = null;
             }
 
             createHeart();
@@ -184,22 +199,26 @@
             const bgMusic = document.getElementById('bgMusic');
             const voice = document.getElementById('voice');
 
-            // 微信兼容
+            // 微信音频兼容
             document.addEventListener("WeixinJSBridgeReady", function () {
                 bgMusic.load();
                 voice.load();
             }, false);
 
-            const startExperience = () => {
+            const startExperience = (e) => {
+                // 阻止默认行为（防止缩放等）
+                if(e.type === 'touchstart') e.preventDefault();
+                
                 if (isAnimating) return;
                 isAnimating = true;
 
-                // 点击即播放
+                // 播放音频
                 bgMusic.volume = 0.3;
-                bgMusic.play().catch(e => console.log("BGM error", e));
+                bgMusic.play().catch(e => console.log("BGM play error", e));
 
+                // UI 切换
                 loadingText.style.opacity = '0';
-                setTimeout(() => loadingText.remove(), 600);
+                setTimeout(() => loadingText.style.display = 'none', 600);
                 canvasContainer.style.opacity = '1';
 
                 clock.start();
@@ -208,16 +227,19 @@
                 // 延迟播放人声
                 setTimeout(() => {
                     voice.volume = 1.0;
-                    voice.play().catch(e => console.log("Voice error", e));
+                    voice.play().catch(e => console.log("Voice play error", e));
                     playTextSequence();
                 }, 1500);
 
+                // 移除监听
                 document.removeEventListener('click', startExperience);
                 document.removeEventListener('touchstart', startExperience);
             };
 
+            // 同时监听点击和触摸，确保万无一失
             document.addEventListener('click', startExperience);
-            document.addEventListener('touchstart', startExperience, { passive: true });
+            // passive: false 允许我们在回调中阻止默认行为
+            document.addEventListener('touchstart', startExperience, { passive: false });
         }
 
         function playTextSequence() {
@@ -374,8 +396,6 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             if(composer) composer.setSize(window.innerWidth, window.innerHeight);
-            
-            // 窗口变化时动态调整
             const isMobile = window.innerWidth < 768;
             camera.position.z = isMobile ? 75 : 40;
         }
