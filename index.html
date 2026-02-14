@@ -83,16 +83,15 @@
     <div id="loading">✨ 点击屏幕任意位置开启专属浪漫 ✨</div>
 
     <div id="canvas-container"></div>
-
     <div id="message"></div>
 
-    <script src="https://cdn.bootcdn.net/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
-    <script src="https://unpkg.com/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.staticfile.org/three.js/r128/examples/js/postprocessing/UnrealBloomPass.js"></script>
 
     <script>
         let scene, camera, renderer, composer;
@@ -121,13 +120,18 @@
             }
         `;
 
-        // 确保页面加载完再执行，防止JS报错
+        // 资源加载检测
         window.onload = function() {
-            try {
-                init();
-            } catch (e) {
-                console.error("初始化失败:", e);
-                document.getElementById('loading').innerText = "资源加载遇到问题，请刷新重试";
+            // 简单检测 THREE 是否加载成功
+            if (typeof THREE === 'undefined') {
+                document.getElementById('loading').innerHTML = "网络资源加载失败<br>请尝试关闭WiFi使用流量打开";
+                document.getElementById('loading').style.color = "red";
+            } else {
+                try {
+                    init();
+                } catch (e) {
+                    console.error(e);
+                }
             }
         };
 
@@ -138,10 +142,8 @@
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             
-            // --- 【重要修复】手机屏幕适配 ---
-            // 检测是否为手机
+            // 手机适配逻辑
             const isMobile = window.innerWidth < 768;
-            // 手机端相机距离设为 75（更远），电脑端 40
             const zPos = isMobile ? 75 : 40; 
             const yPos = isMobile ? 0 : 5;
             
@@ -153,8 +155,8 @@
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            // 如果 EffectComposer 加载失败，做降级处理防止白屏
-            if (typeof THREE.EffectComposer !== 'undefined') {
+            // 错误处理：如果后期处理加载失败，降级显示
+            try {
                 const renderScene = new THREE.RenderPass(scene, camera);
                 const bloomPass = new THREE.UnrealBloomPass(
                     new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -163,8 +165,9 @@
                 composer = new THREE.EffectComposer(renderer);
                 composer.addPass(renderScene);
                 composer.addPass(bloomPass);
-            } else {
-                console.warn("后期处理库加载失败，降级为普通渲染");
+            } catch (e) {
+                console.warn("Bloom effect failed to load", e);
+                composer = null; // 标记为无后期处理
             }
 
             createHeart();
@@ -202,6 +205,7 @@
                 clock.start();
                 animate();
 
+                // 延迟播放人声
                 setTimeout(() => {
                     voice.volume = 1.0;
                     voice.play().catch(e => console.log("Voice error", e));
@@ -369,7 +373,7 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-            if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+            if(composer) composer.setSize(window.innerWidth, window.innerHeight);
             
             // 窗口变化时动态调整
             const isMobile = window.innerWidth < 768;
@@ -383,7 +387,7 @@
             uniforms.uTime.value = time;
             if (heartSystem) heartSystem.rotation.y = time * 0.1;
             if (orbitalsSystem) orbitalsSystem.rotation.y = time * 0.05;
-            if (composer) composer.render();
+            if(composer) composer.render();
             else renderer.render(scene, camera);
         }
     </script>
